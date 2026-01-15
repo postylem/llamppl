@@ -26,6 +26,7 @@ class ConstraintModel(Model):
     def __init__(self, LLM, prompt, max_tokens):
         super().__init__()
         self.context = LMContext(LLM, prompt)
+        self.previous_string = str(self.context)
         self.max_tokens = max_tokens
         self.masks = make_masks(LLM)
         self.eos_token_id = LLM.tokenizer.eos_token_id
@@ -35,6 +36,7 @@ class ConstraintModel(Model):
         await self.observe(self.context.mask_dist(mask), True)
 
     async def step(self):
+        self.previous_string = str(self.context)
         # Generate proposed token.
         token = await self.sample(self.context.next_token())
 
@@ -59,7 +61,13 @@ class ConstraintModel(Model):
         return self.masks[min(5, len(last_word))]
 
     def string_for_serialization(self):
-        return f"{self.context}"
+        s = (
+            self.previous_string
+            + "<<<"
+            + str(self.context)[len(self.previous_string) :]
+            + ">>>"
+        )
+        return s
 
     def immutable_properties(self):
         return ["masks"]
@@ -84,7 +92,7 @@ async def run_example(LLM, max_tokens=50, n_particles=20, ess_threshold=0.5):
 
     # Run inference.
     particles = await smc_standard(
-        constraint_model, n_particles, ess_threshold, "html", "results/output.json"
+        constraint_model, n_particles, ess_threshold, "html", "results/output-new.json"
     )
     for p in particles:
         print(f"{p.context}")
@@ -96,7 +104,8 @@ def main():
     # Load the language model.
     # Mistral and Vicuna are open models; to use a model with restricted access, like LLaMA 3,
     # authenticate using the Huggingface CLI.
-    LLM = CachedCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
+    LLM = CachedCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B", backend="mlx")
+    # LLM = CachedCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
     # LLM = CachedCausalLM.from_pretrained("lmsys/vicuna-7b-v1.5")
     # LLM = CachedCausalLM.from_pretrained("mistralai/Mistral-7B-v0.1")
 
@@ -106,6 +115,8 @@ def main():
 
     # Run the example.
     asyncio.run(run_example(LLM))
+
+    print(LLM.model)
 
 
 if __name__ == "__main__":

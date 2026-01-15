@@ -3,8 +3,17 @@ import asyncio
 import pytest
 import torch
 
-from examples.haiku import run_example as run_haiku
-from examples.hard_constraints import run_example as run_hard_constraints
+import sys
+import os
+
+current_dir = os.path.dirname(__file__)
+examples_dir = os.path.abspath(os.path.join(current_dir, "..", "examples"))
+if examples_dir not in sys.path:
+    sys.path.insert(0, examples_dir)
+
+from haiku import run_example as run_haiku
+from hard_constraints import run_example as run_hard_constraints
+
 from llamppl.llms import CachedCausalLM, MLX_AVAILABLE
 
 if MLX_AVAILABLE:

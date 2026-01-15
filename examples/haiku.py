@@ -42,7 +42,7 @@ def count_syllables(word, unknown_word_syllables=100):
 # Note that not all of these follow the syllabic constraints of a Haiku; the goal is
 # to encode a certain 'poetic style' but to leave the syllabic constraints to be enforced
 # by the probabilistic program (enabling generalization to other syllabic constraints).
-EXAMPLE_POEMS = """Example poems. Note how they tend to end on a somewhat surprising or otherwise satisfying note, and are not repetitive at the end.
+EXAMPLE_POEMS = """Example poems. Note how they tend to end on a somewhat surprising or otherwise satisfying note, and are not repetitive at the end. And how the often make reference to a season of the year, or nature.
 
 1. "Portrait"
 Sweet smell of wet flowers
@@ -116,7 +116,12 @@ class Haiku(Model):
 
 
 async def run_example(
-    LLM, poem_title, syllable_pattern=[5, 7, 5], n_particles=20, ess_threshold=0.5
+    LLM,
+    poem_title,
+    syllable_pattern=[5, 7, 5],
+    n_particles=20,
+    ess_threshold=0.5,
+    json_filename="output",
 ):
     # Construct prompt
     prompt = f"""{EXAMPLE_POEMS}
@@ -132,17 +137,23 @@ async def run_example(
 
     # Run inference
     particles = await smc_standard(
-        haiku_model, n_particles, ess_threshold, "html", "results/haiku.json"
+        haiku_model,
+        n_particles,
+        ess_threshold,
+        "html",
+        f"results/{json_filename}.json",
     )
 
     return particles
 
 
 def main():
+    from pathvalidate import sanitize_filename
+
     # Load the language model.
     # Mistral is an open model; to use a model with restricted access, like LLaMA 3,
     # authenticate using the Huggingface CLI.
-    LLM = CachedCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B")
+    LLM = CachedCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B", backend="mlx")
     # LLM = CachedCausalLM.from_pretrained("mistralai/Mistral-7B-v0.1")
 
     # Set batch size if using HuggingFace backend
@@ -152,11 +163,18 @@ def main():
     # Get poem title from user
     poem_title = input("Enter a title for your Haiku: ")
 
+    json_filename = f"haiku-{sanitize_filename(poem_title)}"
+
     syllables_per_line = [5, 7, 5]  # [5, 3, 5] for a Lune
 
     # Run the example
     particles = asyncio.run(
-        run_example(LLM, poem_title, syllable_pattern=syllables_per_line)
+        run_example(
+            LLM,
+            poem_title,
+            syllable_pattern=syllables_per_line,
+            json_filename=json_filename,
+        )
     )
 
     print("--------")
