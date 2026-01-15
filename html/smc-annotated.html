@@ -4,7 +4,7 @@
 <head>
     <style>
         #frame-background {
-            fill: rgb(241, 241, 241);
+            fill: white;
             stroke: gray;
         }
 
@@ -129,6 +129,23 @@
             margin: 10px 0;
         }
 
+        .slider-container {
+            display: inline-block;
+            margin: 5px 15px;
+            vertical-align: middle;
+        }
+
+        .slider-label {
+            font-size: 14px;
+            font-family: "Gill Sans";
+            margin-right: 10px;
+        }
+
+        .slider {
+            width: 150px;
+            vertical-align: middle;
+        }
+
         .gradient-flow {
             opacity: 0.6;
             pointer-events: none;
@@ -209,7 +226,14 @@
     <div class="controls">
         <button id="toggle-weights" class="toggle-button">Hide weight</button>
         <button id="toggle-prefix" class="toggle-button">Hide prefix text</button>
+        <button id="toggle-particle-text" class="toggle-button">Hide particle text</button>
         <button id="toggle-gradient-flow" class="toggle-button">Show gradient flow</button>
+        <button id="toggle-collapse-steps" class="toggle-button">Collapse steps</button>
+        <div class="slider-container">
+            <span class="slider-label">Step spacing:</span>
+            <input type="range" id="step-spacing-slider" class="slider" min="50" max="500" value="200" step="10">
+            <span id="step-spacing-value" class="slider-label">200</span>
+        </div>
     </div>
 
     <div id="svg">
@@ -257,9 +281,12 @@
         let all_particles = [];
 
         // Toggle state
-        let weights_visible = true;
+                        let weights_visible = false; // Hidden by default
         let prefix_visible = true;
+                        let particle_text_visible = true;
         let gradient_flow_visible = false;
+                        let collapse_steps = false;
+                        let step_spacing = 200; // Vertical spacing between steps
 
         // Store gradient flow elements
         let gradient_flow_group = null;
@@ -280,7 +307,7 @@
             all_particles = [];
 
             const particle_yspace = 30
-            const state_yspace = particle_yspace * num_particles + 50
+            const state_yspace = collapse_steps ? step_spacing : (particle_yspace * num_particles + step_spacing)
             const particle_xspace = 30
             const state_xspace = particle_xspace * num_particles
 
@@ -295,7 +322,12 @@
 
                     const particle = particles[j]
                     particle.x = j * particle_xspace
-                    particle.y = i * state_yspace + j * particle_yspace
+                    if (collapse_steps) {
+                        // In collapsed mode, all particles in a step share the same y position (horizontal row)
+                        particle.y = i * state_yspace
+                    } else {
+                        particle.y = i * state_yspace + j * particle_yspace
+                    }
                     particle.relative_weight = Math.exp(particle.logweight - history[i].logweight_total)
                     particle.prefix = particle.contents.split("<<<")[0]
                     particle.suffix = particle.contents.split(">>>")[1]
@@ -360,8 +392,10 @@
                 state.y = state.particles[0].y
 
                 // show "SMC Step" or "Resample" etc
+                // When collapsed, position at same y as particles, otherwise above
+                const step_label_y = collapse_steps ? state.y : state.y - 40;
                 frame_foreground.append("text")
-                    .attr("transform", `translate(${state.x - 60},${state.y - 40})`)
+                    .attr("transform", `translate(${state.x - 60},${step_label_y})`)
                     .text(`Step ${state.step}`)
                     .attr("text-anchor", "middle")
                     .style("font-size", 20)
@@ -389,13 +423,46 @@
                         .attr("r", r * Math.sqrt(particle.relative_weight / largest_relweight) + 3)
 
 
-                    particle.text = particle.g
-                        .append("text")
-                        .classed("program", true)
-                        // .attr("x", r * 2)
-                        .attr("x", state_xspace - particle.x)
-                        .attr("y", r / 2)
-                        .classed("zeroweight", particle.relative_weight == 0)
+                    // Position text based on collapse mode
+                    if (collapse_steps) {
+                        // Diagonal positioning at 30 degrees upward
+                        const angle = 30 * Math.PI / 180; // 30 degrees in radians
+                        const diagonal_offset = 50; // Distance along the diagonal
+                        const text_x = Math.cos(angle) * diagonal_offset;
+                        const text_y = -Math.sin(angle) * diagonal_offset; // Negative for upward
+
+                        particle.text = particle.g
+                            .append("text")
+                            .classed("program", true)
+                            .attr("x", text_x)
+                            .attr("y", text_y)
+                            .attr("transform", `rotate(-30 ${text_x} ${text_y})`) // Rotate text to align with diagonal
+                            .classed("zeroweight", particle.relative_weight == 0)
+
+                        particle.weight_text = particle.g.append("text")
+                            .attr("x", text_x)
+                            .attr("y", text_y + 15)
+                            .attr("transform", `rotate(-30 ${text_x} ${text_y + 15})`)
+                            .style("font-size", 10)
+                            .style("fill", "#888")
+                            .text("w/Σw=" + particle.relative_weight.toFixed(2) + " " + "w=" + show_prob(Math.exp(particle.logweight)) + " Δw (" + show_prob(Math.exp(particle.weight_incr)) + ")")
+                    } else {
+                        // Normal horizontal positioning
+                        particle.text = particle.g
+                            .append("text")
+                            .classed("program", true)
+                            .attr("x", state_xspace - particle.x)
+                            .attr("y", r / 2)
+                            .classed("zeroweight", particle.relative_weight == 0)
+
+                        particle.weight_text = particle.g.append("text")
+                            .attr("x", 2 * r)
+                            .attr("y", -r)
+                            .style("font-size", 10)
+                            .style("fill", "#888")
+                            .text("w/Σw=" + particle.relative_weight.toFixed(2) + " " + "w=" + show_prob(Math.exp(particle.logweight)) + " Δw (" + show_prob(Math.exp(particle.weight_incr)) + ")")
+                    }
+
                     particle.prefix_tspan = particle.text
                         .append("tspan")
                         .text(particle.prefix)
@@ -409,13 +476,6 @@
 
                     const left_side = -particle.x - r * 2
 
-                    particle.weight_text = particle.g.append("text")
-                        .attr("x", 2 * r)
-                        .attr("y", -r)
-                        .style("font-size", 10)
-                        .style("fill", "#888")
-                        .text("w/Σw=" + particle.relative_weight.toFixed(2) + " " + "w=" + show_prob(Math.exp(particle.logweight)) + " Δw (" + show_prob(Math.exp(particle.weight_incr)) + ")")
-
                     // Store particle for toggling
                     all_particles.push(particle)
 
@@ -428,14 +488,18 @@
                 }
 
                 // Compute diagnostics for this step
-                const avg_weight = particles.reduce((sum, p) => sum + p.relative_weight, 0) / particles.length;
-                const ess = 1 / particles.reduce((sum, p) => sum + p.relative_weight * p.relative_weight, 0);
+                // TODO: Implement correct calculations
+                const avg_weight = null; // Placeholder - implement later
+                const ess = null; // Placeholder - implement later
                 state.avg_weight = avg_weight;
                 state.ess = ess;
             }
 
             // Create gradient flow visualization
             create_gradient_flow(history, state_xspace, state_yspace, SVG_WIDTH, SVG_HEIGHT);
+
+            // Initialize weight visibility based on default state
+            initialize_weight_visibility();
 
             // Set initial zoom/pan to show gradient flow on the left and zoom out
             const initial_scale = 0.7; // Zoom out to 70%
@@ -452,8 +516,8 @@
 
         // Configuration for which diagnostics to display
         const diagnostic_config = [
-            { label: "ESS", key: "ess", format: (v) => v.toFixed(2) },
-            { label: "Avg w", key: "avg_weight", format: (v) => v.toFixed(3) }
+            { label: "ESS", key: "ess", format: (v) => v == null ? "" : v.toFixed(2) },
+            { label: "Avg w", key: "avg_weight", format: (v) => v == null ? "" : v.toFixed(3) }
         ];
 
         function create_gradient_flow(history, state_xspace, state_yspace, svg_width, svg_height) {
@@ -462,7 +526,11 @@
             // Position for diagnostic nodes (to the left of particles)
             const diagnostic_x = -200;
             const model_x = -370; // Moved 20px further left
-            const model_y = svg_height / 2;
+
+            // Position model box vertically between first and last step
+            const first_step_y = history.length > 0 ? history[0].y : svg_height / 2;
+            const last_step_y = history.length > 0 ? history[history.length - 1].y : svg_height / 2;
+            const model_y = (first_step_y + last_step_y) / 2;
 
             // Create model node
             if (model_node) {
@@ -486,11 +554,12 @@
             // Create diagnostic nodes and flow paths for each step
             for (const state of history) {
                 const particles = state.particles;
-                const diagnostic_y = state.y;
+                // Position diagnostics above step when collapsed, otherwise at step y
+                const diagnostic_y = collapse_steps ? state.y - step_spacing / 2 : state.y;
 
-                // Compute diagnostics
-                const avg_weight = state.avg_weight || 0;
-                const ess = state.ess || 0;
+                // Get diagnostics from state (null placeholders for now)
+                const avg_weight = state.avg_weight;
+                const ess = state.ess;
 
                 // Create diagnostic node
                 const diagnostic_g = gradient_flow_group.append("g")
@@ -517,11 +586,12 @@
 
                 // Display diagnostics from configuration
                 diagnostic_config.forEach((diag, index) => {
-                    const value = state[diag.key] || 0;
+                    const value = state[diag.key];
+                    const formatted_value = value != null ? diag.format(value) : "";
                     diagnostic_g.append("text")
                         .classed("diagnostic-value", true)
                         .attr("y", first_diag_y + index * 12)
-                        .text(`${diag.label}: ${diag.format(value)}`);
+                        .text(`${diag.label}: ${formatted_value}`);
                 });
 
                 state.diagnostic_node = diagnostic_g;
@@ -540,34 +610,51 @@
                             .attr("stroke-width", 1 + flow_strength * 5)
                             .attr("opacity", 0.3 + flow_strength * 0.5);
 
-                        // Create curved path from particle to diagnostic
-                        // Use cubic Bezier with horizontal start/end for aligned arrowheads
                         const node_width = 80;
                         const arrowhead_offset = 20; // Offset so arrowhead ends at box edge
                         const start_x = particle.x;
                         const start_y = particle.y;
-                        const end_x = diagnostic_x + node_width / 2 + arrowhead_offset; // Stop before right edge so arrowhead ends at edge
+                        // End at right border of diagnostic box: diagnostic_x is center, right edge is center + half width
+                        // Right border is at diagnostic_x + node_width/2, then add 50px rightward as requested
+                        const right_border = diagnostic_x + node_width / 2;
+                        const end_x = right_border + 50 - arrowhead_offset;
                         const end_y = diagnostic_y;
 
-                        // Control points for horizontal tangents
-                        // First control point: maintain horizontal from start
-                        const cx1 = start_x + (end_x - start_x) * 0.3;
-                        const cy1 = start_y;
-                        // Second control point: maintain horizontal to end
-                        const cx2 = end_x - (end_x - start_x) * 0.3;
-                        const cy2 = end_y;
+                        if (collapse_steps) {
+                            // In collapsed mode: go vertically up first, then curve horizontally
+                            const vertical_up_distance = step_spacing / 2 - 20; // Go up most of the way
+                            const mid_y = start_y - vertical_up_distance; // Vertical position where we turn
 
-                        path.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+                            // Path: start vertically up, then curve horizontally to diagnostic
+                            // Control points: first maintains vertical, second maintains horizontal at end
+                            const cx1 = start_x; // Keep vertical from start
+                            const cy1 = mid_y;
+                            const cx2 = end_x - (end_x - start_x) * 0.2; // Close to end, maintaining horizontal
+                            const cy2 = end_y; // Same y as end for horizontal tangent
+
+                            path.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+                        } else {
+                        // Normal mode: curved path with horizontal start/end
+                            // Control points for horizontal tangents
+                            const cx1 = start_x + (end_x - start_x) * 0.3;
+                            const cy1 = start_y;
+                            const cx2 = end_x - (end_x - start_x) * 0.3;
+                            const cy2 = end_y;
+
+                            path.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+                        }
 
                         particle.gradient_path = path;
                     }
                 }
 
                 // Create flow path from diagnostic to model
+                // Use default value if avg_weight is null
+                const flow_weight = avg_weight != null ? avg_weight : 0.5;
                 const diagnostic_to_model = gradient_flow_group.append("path")
                     .classed("gradient-path-to-model", true)
-                    .attr("stroke-width", 2 + avg_weight * 3)
-                    .attr("opacity", 0.4 + avg_weight * 0.4);
+                    .attr("stroke-width", 2 + flow_weight * 3)
+                    .attr("opacity", 0.4 + flow_weight * 0.4);
 
                 const model_node_width = 120;
                 const arrowhead_offset = 20; // Offset so arrowhead ends at box edge
@@ -662,7 +749,19 @@
                 }
             });
 
-            button.text(weights_visible ? "Hide Weight Annotations" : "Show Weight Annotations");
+                                            button.text(weights_visible ? "Hide weight" : "Show weight");
+                                            button.classed("off", !weights_visible);
+                                        }
+
+                                        // Initialize weight visibility state on page load
+                                        function initialize_weight_visibility() {
+                                            all_particles.forEach(particle => {
+                                                if (particle.weight_text) {
+                                                    particle.weight_text.style("display", weights_visible ? "block" : "none");
+                                                }
+                                            });
+                                            const button = d3.select("#toggle-weights");
+                                            button.text(weights_visible ? "Hide weight" : "Show weight");
             button.classed("off", !weights_visible);
         }
 
@@ -681,6 +780,24 @@
             button.classed("off", !prefix_visible);
         }
 
+                                                                                                            // Toggle all particle text (prefix, highlighted, suffix, weight)
+                                                                                                            function toggle_particle_text() {
+                                                                                                                particle_text_visible = !particle_text_visible;
+                                                                                                                const button = d3.select("#toggle-particle-text");
+
+                                                                                                                all_particles.forEach(particle => {
+                                                                                                                    if (particle.text) {
+                                                                                                                        particle.text.style("display", particle_text_visible ? "block" : "none");
+                                                                                                                    }
+                                                                                                                    if (particle.weight_text) {
+                                                                                                                        particle.weight_text.style("display", particle_text_visible ? "block" : "none");
+                                                                                                                    }
+                                                                                                                });
+
+                                                                                                                button.text(particle_text_visible ? "Hide particle text" : "Show particle text");
+                                                                                                                button.classed("off", !particle_text_visible);
+                                                                                                            }
+
         // Toggle gradient flow
         function toggle_gradient_flow() {
             gradient_flow_visible = !gradient_flow_visible;
@@ -694,10 +811,43 @@
             button.classed("off", !gradient_flow_visible);
         }
 
+                                                                                                                                        // Toggle collapse steps
+                                                                                                                                        function toggle_collapse_steps() {
+                                                                                                                                            collapse_steps = !collapse_steps;
+                                                                                                                                            const button = d3.select("#toggle-collapse-steps");
+
+                                                                                                                                            // Reload data to reposition particles
+                                                                                                                                            if (load_path) {
+                                                                                                                                                d3.json('../' + load_path, { cache: "no-store" })
+                                                                                                                                                    .then(data => show_data(data))
+                                                                                                                                                    .catch(error => console.log(error));
+                                                                                                                                            }
+
+                                                                                                                                            button.text(collapse_steps ? "Expand steps" : "Collapse steps");
+                                                                                                                                            button.classed("off", collapse_steps);
+                                                                                                                                        }
+
         // Set up button event handlers
         d3.select("#toggle-weights").on("click", toggle_weights);
         d3.select("#toggle-prefix").on("click", toggle_prefix);
+                                                                                                            d3.select("#toggle-particle-text").on("click", toggle_particle_text);
         d3.select("#toggle-gradient-flow").on("click", toggle_gradient_flow);
+                                                                                                d3.select("#toggle-collapse-steps").on("click", toggle_collapse_steps);
+
+                                                                                                // Step spacing slider handler
+                                                                                                function update_step_spacing() {
+                                                                                                    step_spacing = parseInt(d3.select("#step-spacing-slider").property("value"));
+                                                                                                    d3.select("#step-spacing-value").text(step_spacing);
+
+                                                                                                    // Reload data to reposition particles
+                                                                                                    if (load_path) {
+                                                                                                        d3.json('../' + load_path, { cache: "no-store" })
+                                                                                                            .then(data => show_data(data))
+                                                                                                            .catch(error => console.log(error));
+                                                                                                    }
+                                                                                                }
+
+                                                                                                d3.select("#step-spacing-slider").on("input", update_step_spacing);
 
     </script>
 

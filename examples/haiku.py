@@ -119,7 +119,7 @@ async def run_example(
     LLM,
     poem_title,
     syllable_pattern=[5, 7, 5],
-    n_particles=20,
+    n_particles=10,
     ess_threshold=0.5,
     json_filename="output",
 ):
