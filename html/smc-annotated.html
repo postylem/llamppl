@@ -221,13 +221,14 @@
 
 <body>
 
-    <h1>Sequential Monte Carlo - Experimental Visualization</h1>
+    <h1>Sequential Monte Carlo - visualization sandbox</h1>
 
     <div class="controls">
         <button id="toggle-weights" class="toggle-button">Hide weight</button>
         <button id="toggle-prefix" class="toggle-button">Hide prefix text</button>
         <button id="toggle-particle-text" class="toggle-button">Hide particle text</button>
         <button id="toggle-gradient-flow" class="toggle-button">Show gradient flow</button>
+        <button id="toggle-wsft-gradient-flow" class="toggle-button">Show wSFT gradient flow</button>
         <button id="toggle-collapse-steps" class="toggle-button">Collapse steps</button>
         <div class="slider-container">
             <span class="slider-label">Step spacing:</span>
@@ -285,11 +286,13 @@
         let prefix_visible = true;
                         let particle_text_visible = true;
         let gradient_flow_visible = false;
+                                            let wsft_gradient_flow_visible = false;
                         let collapse_steps = false;
                         let step_spacing = 200; // Vertical spacing between steps
 
         // Store gradient flow elements
         let gradient_flow_group = null;
+                                            let wsft_gradient_flow_group = null;
         let diagnostic_nodes = [];
         let model_node = null;
 
@@ -359,6 +362,12 @@
             gradient_flow_group = frame_foreground.append("g")
                 .classed("gradient-flow", true)
                 .classed("hidden", !gradient_flow_visible)
+
+            // Create wSFT gradient flow group
+            wsft_gradient_flow_group = frame_foreground.append("g")
+                .classed("gradient-flow", true)
+                .classed("hidden", !wsft_gradient_flow_visible)
+
             diagnostic_nodes = [];
 
 
@@ -498,6 +507,9 @@
             // Create gradient flow visualization
             create_gradient_flow(history, state_xspace, state_yspace, SVG_WIDTH, SVG_HEIGHT);
 
+            // Create wSFT gradient flow visualization (from final particles only)
+            create_wsft_gradient_flow(history, state_xspace, state_yspace, SVG_WIDTH, SVG_HEIGHT);
+            
             // Initialize weight visibility based on default state
             initialize_weight_visibility();
 
@@ -811,6 +823,97 @@
             button.classed("off", !gradient_flow_visible);
         }
 
+                                        // Create wSFT gradient flow (from final particles directly to LM parameters)
+                                        function create_wsft_gradient_flow(history, state_xspace, state_yspace, svg_width, svg_height) {
+                                            if (!wsft_gradient_flow_group || history.length === 0) return;
+
+                                            // Get final step particles
+                                            const final_step = history[history.length - 1];
+                                            const particles = final_step.particles;
+
+                                            // Position for model node: 1/2 step spacing below the final step
+                                            const model_x = -370;
+                                            const last_step_y = final_step.y;
+                                            const model_y = last_step_y + step_spacing / 2;
+
+                                            // Create model node for wSFT (separate from regular gradient flow)
+                                            // Remove existing if any
+                                            wsft_gradient_flow_group.selectAll(".wsft-model-node").remove();
+
+                                            const wsft_model_node = wsft_gradient_flow_group.append("g")
+                                                .classed("wsft-model-node", true)
+                                                .attr("transform", `translate(${model_x},${model_y})`);
+
+                                            wsft_model_node.append("rect")
+                                                .classed("model-node", true)
+                                                .attr("x", -60)
+                                                .attr("y", -20)
+                                                .attr("width", 120)
+                                                .attr("height", 40);
+
+                                            wsft_model_node.append("text")
+                                                .classed("model-label", true)
+                                                .attr("y", 5)
+                                                .text("LM Parameters");
+
+                                            // Create flow paths from final particles directly to model
+                                            const model_node_width = 120;
+                                            const arrowhead_offset = 20;
+
+                                            for (const particle of particles) {
+                                                if (particle.relative_weight > 0) {
+                                                    const flow_strength = particle.relative_weight;
+                                                    const is_strong = flow_strength > 0.1;
+
+                                                    const path = wsft_gradient_flow_group.append("path")
+                                                        .classed("gradient-path", true)
+                                                        .classed("strong", is_strong)
+                                                        .attr("stroke-width", 1 + flow_strength * 5)
+                                                        .attr("opacity", 0.3 + flow_strength * 0.5);
+
+                                                    const start_x = particle.x;
+                                                    const start_y = particle.y;
+                                                    // End at right border of model node (same calculation as diagnostic-to-model path)
+                                                    const end_x = model_x + model_node_width / 2 + arrowhead_offset; // Same as diagnostic-to-model path
+                                                    const end_y = model_y;
+
+                                                    if (collapse_steps) {
+                                                        // In collapsed mode: go vertically down, then curve horizontally
+                                                        const vertical_distance = end_y - start_y;
+                                                        const mid_y = start_y + vertical_distance * 0.7; // Most of the way down
+
+                                                        const cx1 = start_x; // Keep vertical from start
+                                                        const cy1 = mid_y;
+                                                        const cx2 = end_x - (end_x - start_x) * 0.2; // Close to end, maintaining horizontal
+                                                        const cy2 = end_y; // Same y as end for horizontal tangent
+
+                                                        path.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+                                                    } else {
+                                                        // Normal mode: curved path with horizontal end
+                                                        const cx1 = start_x + (end_x - start_x) * 0.3;
+                                                        const cy1 = start_y;
+                                                        const cx2 = end_x - (end_x - start_x) * 0.3;
+                                                        const cy2 = end_y; // Same y as end for horizontal tangent
+
+                                                        path.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Toggle wSFT gradient flow
+                                        function toggle_wsft_gradient_flow() {
+                                            wsft_gradient_flow_visible = !wsft_gradient_flow_visible;
+                                            const button = d3.select("#toggle-wsft-gradient-flow");
+
+                                            if (wsft_gradient_flow_group) {
+                                                wsft_gradient_flow_group.classed("hidden", !wsft_gradient_flow_visible);
+                                            }
+
+                                            button.text(wsft_gradient_flow_visible ? "Hide wSFT gradient flow" : "Show wSFT gradient flow");
+                                            button.classed("off", !wsft_gradient_flow_visible);
+                                        }
+
                                                                                                                                         // Toggle collapse steps
                                                                                                                                         function toggle_collapse_steps() {
                                                                                                                                             collapse_steps = !collapse_steps;
@@ -830,9 +933,10 @@
         // Set up button event handlers
         d3.select("#toggle-weights").on("click", toggle_weights);
         d3.select("#toggle-prefix").on("click", toggle_prefix);
-                                                                                                            d3.select("#toggle-particle-text").on("click", toggle_particle_text);
+                                            d3.select("#toggle-particle-text").on("click", toggle_particle_text);
         d3.select("#toggle-gradient-flow").on("click", toggle_gradient_flow);
-                                                                                                d3.select("#toggle-collapse-steps").on("click", toggle_collapse_steps);
+                                            d3.select("#toggle-wsft-gradient-flow").on("click", toggle_wsft_gradient_flow);
+                                            d3.select("#toggle-collapse-steps").on("click", toggle_collapse_steps);
 
                                                                                                 // Step spacing slider handler
                                                                                                 function update_step_spacing() {
