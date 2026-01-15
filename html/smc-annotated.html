@@ -1,0 +1,706 @@
+<html>
+<meta charset="utf-8">
+
+<head>
+    <style>
+        #frame-background {
+            fill: rgb(241, 241, 241);
+            stroke: gray;
+        }
+
+        circle.particle {
+            fill: darkblue;
+            cursor: pointer
+        }
+
+        circle.particle.highlighted {
+            fill: rgb(216, 184, 0);
+        }
+
+        circle.particle.zeroweight {
+            fill: #ccc;
+        }
+
+        path.parentline {
+            fill: none;
+            stroke: #BBE;
+            stroke-width: 2px;
+            marker-end: url(#arrowhead)
+        }
+
+        path.parentline.rejuv {
+            stroke: #EBB;
+        }
+
+        path.parentline.highlighted {
+            stroke: rgb(216, 184, 0);
+            stroke-width: 8px;
+            /* opacity: .5; */
+            marker-end: none
+        }
+
+        text.program {
+            font-size: 18px;
+            font-family: "Gill Sans";
+            /* fill: rgb(86, 86, 86); */
+            fill: darkblue;
+            cursor: pointer;
+        }
+
+        tspan.modified-expr {
+            font-weight: bold;
+        }
+
+        text.program.zeroweight {
+            fill: #ccc;
+        }
+
+        text.program.highlighted {
+            fill: rgb(117, 102, 16);
+        }
+
+
+        line.dotted {
+            stroke: #777;
+            stroke-dasharray: 2, 6;
+        }
+
+        line.dotted.highlighted {
+            stroke: rgb(117, 102, 16);
+            stroke-width: 2px;
+            stroke-dasharray: 4, 6;
+        }
+
+
+
+
+        .hover {
+            font-size: 10px;
+            font-family: "Gill Sans";
+        }
+
+        rect.hover_rect {
+            fill: rgb(238, 238, 238);
+            stroke: black;
+            stroke-width: 1;
+            rx: 5;
+            ry: 5;
+        }
+
+        rect.hover_rect_header {
+            stroke: none;
+            rx: 5;
+            ry: 5;
+        }
+
+        line.highlight {
+            stroke: blue;
+            stroke-width: 2px;
+            opacity: .5;
+        }
+
+        text {
+            font-size: 18px;
+            font-family: "Gill Sans";
+        }
+
+        .toggle-button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .toggle-button:hover {
+            background-color: #45a049;
+        }
+
+        .toggle-button.off {
+            background-color: #f44336;
+        }
+
+        .toggle-button.off:hover {
+            background-color: #da190b;
+        }
+
+        .controls {
+            margin: 10px 0;
+        }
+
+        .gradient-flow {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .gradient-flow.hidden {
+            display: none;
+        }
+
+        .gradient-path {
+            fill: none;
+            stroke: #ff6b6b;
+            stroke-width: 2px;
+            marker-end: url(#gradient-arrowhead);
+            opacity: 0.4;
+        }
+
+        .gradient-path.strong {
+            stroke-width: 4px;
+            opacity: 0.7;
+        }
+
+        .diagnostic-node {
+            fill: #3ab5ad;
+            stroke: #2d9a94;
+            stroke-width: 2px;
+            rx: 5;
+            ry: 5;
+        }
+
+        .diagnostic-label {
+            font-size: 12px;
+            font-family: "Gill Sans";
+            fill: white;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+
+        .diagnostic-value {
+            font-size: 10px;
+            font-family: "Gill Sans";
+            fill: white;
+            text-anchor: middle;
+        }
+
+        .model-node {
+            fill: #95a5a6;
+            stroke: #7f8c8d;
+            stroke-width: 3px;
+            rx: 10;
+            ry: 10;
+        }
+
+        .model-label {
+            font-size: 14px;
+            font-family: "Gill Sans";
+            fill: white;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+
+        .gradient-path-to-model {
+            fill: none;
+            stroke: #e74c3c;
+            stroke-width: 3px;
+            marker-end: url(#gradient-arrowhead);
+            opacity: 0.6;
+            stroke-dasharray: 5, 5;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <h1>Sequential Monte Carlo - Experimental Visualization</h1>
+
+    <div class="controls">
+        <button id="toggle-weights" class="toggle-button">Hide weight</button>
+        <button id="toggle-prefix" class="toggle-button">Hide prefix text</button>
+        <button id="toggle-gradient-flow" class="toggle-button">Show gradient flow</button>
+    </div>
+
+    <div id="svg">
+        <svg>
+            <defs>
+                <marker id="arrowhead" markerWidth="5" markerHeight="3.5" refX="0" refY="1.75" orient="auto">
+                    <polygon points="0 0, 5 1.75, 0 3.5" />
+                </marker>
+                <marker id="gradient-arrowhead" markerWidth="6" markerHeight="4" refX="0" refY="2" orient="auto">
+                    <polygon points="0 0, 6 2, 0 4" fill="#ff6b6b" />
+                </marker>
+            </defs>
+            <rect id="frame-background" />
+            <g id="frame-foreground"></g>
+        </svg>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
+    <script>
+        "use strict";
+
+        let load_path = ""
+
+        const url_params = new URLSearchParams(window.location.search)
+        if (url_params.has("path"))
+            load_path = url_params.get("path")
+        load_by_path()
+
+        function load_by_path(path) {
+            if (path == "")
+                return
+            d3.json('../' + load_path, { cache: "no-store" })
+                .then(data => show_data(data))
+                .catch(error => console.log(error));
+        }
+
+        const frame_background = d3.select('#frame-background')
+        const frame_foreground = d3.select('#frame-foreground')
+
+        const zoom_control = d3.zoom().on('zoom', e => frame_foreground.attr('transform', e.transform));
+        frame_background.call(zoom_control);
+
+        // Store all particles for toggling
+        let all_particles = [];
+
+        // Toggle state
+        let weights_visible = true;
+        let prefix_visible = true;
+        let gradient_flow_visible = false;
+
+        // Store gradient flow elements
+        let gradient_flow_group = null;
+        let diagnostic_nodes = [];
+        let model_node = null;
+
+        function show_data(data) {
+            const svg_margin = 50
+            const SVG_WIDTH = ((window.innerWidth > 0) ? window.innerWidth : screen.width) - svg_margin * 2;
+            const SVG_HEIGHT = ((window.innerHeight > 0) ? window.innerHeight : screen.height) - 200;
+
+            let history = data
+            window.svg = history
+            console.log(history)
+            const num_particles = history[0].particles.length
+
+            // Reset particles array
+            all_particles = [];
+
+            const particle_yspace = 30
+            const state_yspace = particle_yspace * num_particles + 50
+            const particle_xspace = 30
+            const state_xspace = particle_xspace * num_particles
+
+            // modify `data` in place in any ways you need
+            for (let i = 0; i < history.length; i++) {
+                let particles = history[i].particles
+                history[i].logweight_total = particles.reduce((acc, p) => logaddexp(acc, p.logweight), -Infinity)
+                console.log("Total log weight step " + i + ": " + history[i].logweight_total)
+                for (let j = 0; j < particles.length; j++) {
+                    for (const [k, v] of Object.entries(particles[j]))
+                        particles[j][k] = null_to_neginf(v)
+
+                    const particle = particles[j]
+                    particle.x = j * particle_xspace
+                    particle.y = i * state_yspace + j * particle_yspace
+                    particle.relative_weight = Math.exp(particle.logweight - history[i].logweight_total)
+                    particle.prefix = particle.contents.split("<<<")[0]
+                    particle.suffix = particle.contents.split(">>>")[1]
+                    particle.highlighted = particle.contents.split(">>>")[0].split("<<<")[1]
+                    // if (Number.isFinite(particle.likelihood) && particle.likelihood > 0)
+                    //     min_likelihood = Math.min(min_likelihood, particle.likelihood)
+                    // if (Number.isFinite(particle.posterior) && particle.posterior > 0)
+                    //     min_posterior = Math.min(min_posterior, particle.posterior)
+                    // if (Number.isFinite(particle.prior) && particle.prior > 0)
+                    // min_prior = Math.min(min_prior, particle.prior)
+                    particle.parent = undefined
+                    particle.children = []
+                }
+            }
+
+
+            const svg = d3.select("#svg svg")
+                .attr("width", SVG_WIDTH)
+                .attr("height", SVG_HEIGHT)
+                .attr("transform", `translate(${svg_margin},0)`)
+
+            frame_foreground.selectAll("*").remove()
+
+            frame_background
+                .attr("width", SVG_WIDTH)
+                .attr("height", SVG_HEIGHT)
+
+            // Create gradient flow group
+            gradient_flow_group = frame_foreground.append("g")
+                .classed("gradient-flow", true)
+                .classed("hidden", !gradient_flow_visible)
+            diagnostic_nodes = [];
+
+
+            const link = d3.linkVertical()
+                .x(d => d.x)
+                .y(d => d.y)
+
+            for (let i = 1; i < history.length; i++) {
+                for (let j = 0; j < num_particles; j++) {
+                    const particle = history[i].particles[j]
+                    let parent
+                    if (history[i].mode == "resample") {
+                        parent = history[i - 1].particles[history[i].ancestors[j]]
+                    } else {
+                        parent = history[i - 1].particles[j]
+                    }
+                    particle.parent = parent
+                    particle.parent.children.push(particle)
+                    particle.parent_line = frame_foreground
+                        .append("path")
+                        .classed("parentline", true)
+                        .classed(particle.mode, true) // e.g. ".rejuv"
+                        .attr("d", link({ source: { x: parent.x, y: parent.y + 10 }, target: { x: particle.x, y: particle.y - 18.5 } }))
+                }
+            }
+
+            for (const state of history) {
+                const particles = state.particles
+                const largest_relweight = particles.reduce((acc, p) => Math.max(acc, p.relative_weight), 0)
+                state.x = state.particles[0].x
+                state.y = state.particles[0].y
+
+                // show "SMC Step" or "Resample" etc
+                frame_foreground.append("text")
+                    .attr("transform", `translate(${state.x - 60},${state.y - 40})`)
+                    .text(`Step ${state.step}`)
+                    .attr("text-anchor", "middle")
+                    .style("font-size", 20)
+
+                // show "SMC Step" or "Resample" etc
+                // frame_foreground.append("text")
+                //     .attr("transform", `translate(${state.x - 160 - 300 - 180},${state.y + 20})`)
+                //     .text("(" + state.mode.replace(/_/g, ' ') + ")")
+                //     .attr("text-anchor", "middle")
+                //     .style("font-size", 40)
+
+                for (const particle of particles) {
+                    particle.g = frame_foreground
+                        .append("g")
+                        .attr("transform", `translate(${particle.x},${particle.y})`)
+                        .on("click", () => {
+                            set_click_highlight(particle)
+                            console.log(particle)
+                        })
+                    const r = 10
+                    particle.circle = particle.g
+                        .append("circle")
+                        .classed("particle", true)
+                        .classed("zeroweight", particle.relative_weight == 0)
+                        .attr("r", r * Math.sqrt(particle.relative_weight / largest_relweight) + 3)
+
+
+                    particle.text = particle.g
+                        .append("text")
+                        .classed("program", true)
+                        // .attr("x", r * 2)
+                        .attr("x", state_xspace - particle.x)
+                        .attr("y", r / 2)
+                        .classed("zeroweight", particle.relative_weight == 0)
+                    particle.prefix_tspan = particle.text
+                        .append("tspan")
+                        .text(particle.prefix)
+                    particle.text
+                        .append("tspan")
+                        .classed("modified-expr", true)
+                        .text(particle.highlighted)
+                    particle.text
+                        .append("tspan")
+                        .text(particle.suffix)
+
+                    const left_side = -particle.x - r * 2
+
+                    particle.weight_text = particle.g.append("text")
+                        .attr("x", 2 * r)
+                        .attr("y", -r)
+                        .style("font-size", 10)
+                        .style("fill", "#888")
+                        .text("w/Σw=" + particle.relative_weight.toFixed(2) + " " + "w=" + show_prob(Math.exp(particle.logweight)) + " Δw (" + show_prob(Math.exp(particle.weight_incr)) + ")")
+
+                    // Store particle for toggling
+                    all_particles.push(particle)
+
+                    particle.dotted_line = particle.g.append("line")
+                        .classed("dotted", true)
+                        .attr("x1", left_side)
+                        .attr("x2", state_xspace - particle.x)
+                        .lower()
+
+                }
+
+                // Compute diagnostics for this step
+                const avg_weight = particles.reduce((sum, p) => sum + p.relative_weight, 0) / particles.length;
+                const ess = 1 / particles.reduce((sum, p) => sum + p.relative_weight * p.relative_weight, 0);
+                state.avg_weight = avg_weight;
+                state.ess = ess;
+            }
+
+            // Create gradient flow visualization
+            create_gradient_flow(history, state_xspace, state_yspace, SVG_WIDTH, SVG_HEIGHT);
+
+            // Set initial zoom/pan to show gradient flow on the left and zoom out
+            const initial_scale = 0.7; // Zoom out to 70%
+            const initial_translate_x = 200; // Pan right to show left side
+            const initial_translate_y = 50; // Slight vertical adjustment
+
+            const initial_transform = d3.zoomIdentity
+                .translate(initial_translate_x, initial_translate_y)
+                .scale(initial_scale);
+
+            frame_foreground.attr('transform', initial_transform);
+            zoom_control.transform(frame_background, initial_transform);
+        }
+
+        // Configuration for which diagnostics to display
+        const diagnostic_config = [
+            { label: "ESS", key: "ess", format: (v) => v.toFixed(2) },
+            { label: "Avg w", key: "avg_weight", format: (v) => v.toFixed(3) }
+        ];
+
+        function create_gradient_flow(history, state_xspace, state_yspace, svg_width, svg_height) {
+            if (!gradient_flow_group) return;
+
+            // Position for diagnostic nodes (to the left of particles)
+            const diagnostic_x = -200;
+            const model_x = -370; // Moved 20px further left
+            const model_y = svg_height / 2;
+
+            // Create model node
+            if (model_node) {
+                model_node.remove();
+            }
+            model_node = gradient_flow_group.append("g")
+                .attr("transform", `translate(${model_x},${model_y})`);
+
+            model_node.append("rect")
+                .classed("model-node", true)
+                .attr("x", -60)
+                .attr("y", -20)
+                .attr("width", 120)
+                .attr("height", 40);
+
+            model_node.append("text")
+                .classed("model-label", true)
+                .attr("y", 5)
+                .text("LM Parameters");
+
+            // Create diagnostic nodes and flow paths for each step
+            for (const state of history) {
+                const particles = state.particles;
+                const diagnostic_y = state.y;
+
+                // Compute diagnostics
+                const avg_weight = state.avg_weight || 0;
+                const ess = state.ess || 0;
+
+                // Create diagnostic node
+                const diagnostic_g = gradient_flow_group.append("g")
+                    .attr("transform", `translate(${diagnostic_x},${diagnostic_y})`);
+
+                const node_width = 80;
+                // Dynamic height based on number of diagnostics: header (15px) + spacing (5px) + diagnostics (12px each) + bottom padding (5px)
+                const node_height = 15 + 5 + (diagnostic_config.length * 12) + 5;
+                const top_padding = 5;
+                const header_y = -node_height / 2 + top_padding + 10; // 10px for half font size
+                const first_diag_y = header_y + 12;
+
+                diagnostic_g.append("rect")
+                    .classed("diagnostic-node", true)
+                    .attr("x", -node_width / 2)
+                    .attr("y", -node_height / 2)
+                    .attr("width", node_width)
+                    .attr("height", node_height);
+
+                diagnostic_g.append("text")
+                    .classed("diagnostic-label", true)
+                    .attr("y", header_y)
+                    .text("Diagnostics");
+
+                // Display diagnostics from configuration
+                diagnostic_config.forEach((diag, index) => {
+                    const value = state[diag.key] || 0;
+                    diagnostic_g.append("text")
+                        .classed("diagnostic-value", true)
+                        .attr("y", first_diag_y + index * 12)
+                        .text(`${diag.label}: ${diag.format(value)}`);
+                });
+
+                state.diagnostic_node = diagnostic_g;
+                state.diagnostic_x = diagnostic_x;
+                state.diagnostic_y = diagnostic_y;
+
+                // Create flow paths from particles to diagnostic
+                for (const particle of particles) {
+                    if (particle.relative_weight > 0) {
+                        const flow_strength = particle.relative_weight;
+                        const is_strong = flow_strength > 0.1; // Threshold for strong flow
+
+                        const path = gradient_flow_group.append("path")
+                            .classed("gradient-path", true)
+                            .classed("strong", is_strong)
+                            .attr("stroke-width", 1 + flow_strength * 5)
+                            .attr("opacity", 0.3 + flow_strength * 0.5);
+
+                        // Create curved path from particle to diagnostic
+                        // Use cubic Bezier with horizontal start/end for aligned arrowheads
+                        const node_width = 80;
+                        const arrowhead_offset = 20; // Offset so arrowhead ends at box edge
+                        const start_x = particle.x;
+                        const start_y = particle.y;
+                        const end_x = diagnostic_x + node_width / 2 + arrowhead_offset; // Stop before right edge so arrowhead ends at edge
+                        const end_y = diagnostic_y;
+
+                        // Control points for horizontal tangents
+                        // First control point: maintain horizontal from start
+                        const cx1 = start_x + (end_x - start_x) * 0.3;
+                        const cy1 = start_y;
+                        // Second control point: maintain horizontal to end
+                        const cx2 = end_x - (end_x - start_x) * 0.3;
+                        const cy2 = end_y;
+
+                        path.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+
+                        particle.gradient_path = path;
+                    }
+                }
+
+                // Create flow path from diagnostic to model
+                const diagnostic_to_model = gradient_flow_group.append("path")
+                    .classed("gradient-path-to-model", true)
+                    .attr("stroke-width", 2 + avg_weight * 3)
+                    .attr("opacity", 0.4 + avg_weight * 0.4);
+
+                const model_node_width = 120;
+                const arrowhead_offset = 20; // Offset so arrowhead ends at box edge
+                const start_x = diagnostic_x - 40; // Start from left edge of diagnostic node
+                const start_y = diagnostic_y;
+                const end_x = model_x + model_node_width / 2 + arrowhead_offset; // Stop before right edge so arrowhead ends at edge
+                const end_y = model_y;
+
+                // Control points for horizontal tangents
+                // First control point: maintain horizontal from start
+                const cx1 = start_x + (end_x - start_x) * 0.3;
+                const cy1 = start_y;
+                // Second control point: maintain horizontal to end
+                const cx2 = end_x - (end_x - start_x) * 0.3;
+                const cy2 = end_y;
+
+                diagnostic_to_model.attr("d", `M ${start_x} ${start_y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${end_x} ${end_y}`);
+
+                state.gradient_to_model = diagnostic_to_model;
+            }
+        }
+
+        let curr_highlighted = undefined
+        /// Highlights the history leading up to this particle
+        function set_click_highlight(particle, highlight = true) {
+
+            if (highlight && curr_highlighted != undefined) {
+                set_click_highlight(curr_highlighted, false)
+            }
+            if (highlight && particle === curr_highlighted) {
+                curr_highlighted = undefined
+                return
+            }
+            if (highlight)
+                curr_highlighted = particle
+
+            const to_highlight = [particle]
+            for (let ancestor = particle; ancestor != undefined; ancestor = ancestor.parent) {
+                to_highlight.push(ancestor)
+            }
+            const worklist = [particle]
+            while (worklist.length > 0) {
+                let descendant = worklist.pop()
+                worklist.push(...descendant.children)
+                to_highlight.push(...descendant.children)
+            }
+
+            for (const p of to_highlight) {
+                p.circle.classed("highlighted", highlight)
+                p.dotted_line.classed("highlighted", highlight)
+                p.text.classed("highlighted", highlight)
+                if (p.parent_line) {
+                    p.parent_line.classed("highlighted", highlight)
+                }
+            }
+
+        }
+
+        function show_prob(prob, digits = 0) {
+            if (prob == 0)
+                return "0"
+            if (prob == 1)
+                return "1"
+            if (prob >= 1e-3 && prob <= 1e3)
+                return prob.toPrecision(Math.max(digits, 1))
+            return prob.toExponential(digits)
+        }
+
+        function logaddexp(x, y) {
+            if (x == -Infinity)
+                return y
+            if (y == -Infinity)
+                return x
+            let answer = Math.max(x, y) + Math.log1p(Math.exp(-Math.abs(x - y)))
+
+            return Math.max(x, y) + Math.log1p(Math.exp(-Math.abs(x - y)))
+        }
+
+        // json maps NaN and -Inf and Inf to `null` so we undo that
+        function null_to_neginf(x) {
+            return x == null ? -Infinity : x
+        }
+
+        // Toggle weight annotations
+        function toggle_weights() {
+            weights_visible = !weights_visible;
+            const button = d3.select("#toggle-weights");
+
+            all_particles.forEach(particle => {
+                if (particle.weight_text) {
+                    particle.weight_text.style("display", weights_visible ? "block" : "none");
+                }
+            });
+
+            button.text(weights_visible ? "Hide Weight Annotations" : "Show Weight Annotations");
+            button.classed("off", !weights_visible);
+        }
+
+        // Toggle prefix text
+        function toggle_prefix() {
+            prefix_visible = !prefix_visible;
+            const button = d3.select("#toggle-prefix");
+
+            all_particles.forEach(particle => {
+                if (particle.prefix_tspan) {
+                    particle.prefix_tspan.style("display", prefix_visible ? "inline" : "none");
+                }
+            });
+
+            button.text(prefix_visible ? "Hide Prefix Text" : "Show Prefix Text");
+            button.classed("off", !prefix_visible);
+        }
+
+        // Toggle gradient flow
+        function toggle_gradient_flow() {
+            gradient_flow_visible = !gradient_flow_visible;
+            const button = d3.select("#toggle-gradient-flow");
+
+            if (gradient_flow_group) {
+                gradient_flow_group.classed("hidden", !gradient_flow_visible);
+            }
+
+            button.text(gradient_flow_visible ? "Hide gradient flow" : "Show gradient flow");
+            button.classed("off", !gradient_flow_visible);
+        }
+
+        // Set up button event handlers
+        d3.select("#toggle-weights").on("click", toggle_weights);
+        d3.select("#toggle-prefix").on("click", toggle_prefix);
+        d3.select("#toggle-gradient-flow").on("click", toggle_gradient_flow);
+
+    </script>
+
+</body>
+
+</html>
